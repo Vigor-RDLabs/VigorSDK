@@ -1,0 +1,23 @@
+{
+  "name": "@vigor/camera-sdk",
+  "version": "1.0.0",
+  "description": "Developer Web SDK for Vigor Camera Connectivity platform",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [
+    "webrtc",
+    "rtsp",
+    "camera",
+    "video",
+    "vigor"
+  ],
+  "author": "Vigor Labs",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

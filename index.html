@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>camera-connectivity — Web Demo</title>
+    <meta name="description" content="camera-connectivity Phase 1 web demo — RTSP to WebRTC P2P streaming reference client">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+
+    <!-- ─────────────────────────────────────────────────────────────────────
+         DEVELOPMENT CONFIGURATION
+         Replace this block with server-side injection in production.
+         The production server should inject:
+           - signalingUrl pointing to /v1/signaling/
+           - iceServers from the session API response (expiring TURN credentials)
+         NEVER embed long-lived TURN credentials in production JavaScript.
+         ──────────────────────────────────────────────────────────────────── -->
+    <script>
+        window.CAMERA_CONFIG = {
+            // Update for your local dev environment
+            signalingUrl: "ws://localhost:8000/v1/signaling/",
+            iceServers: [
+                // ⚠ DEVELOPMENT ONLY — replace with session API response
+                { urls: "stun:localhost:3478" }
+            ]
+        };
+    </script>
+
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg:       #060a0f;
+            --surface:  #0b1118;
+            --surface2: #0f1620;
+            --border:   #162030;
+            --border2:  #1e2e42;
+            --text:     #ddeeff;
+            --muted:    #3d5570;
+            --accent:   #00d4ff;
+            --red:      #ff3b5c;
+            --green:    #00e87a;
+            --yellow:   #ffcc00;
+            --orange:   #ff8c42;
+            --font-ui:  'Syne', sans-serif;
+            --font-mono:'DM Mono', monospace;
+        }
+        html, body { height:100%; background:var(--bg); color:var(--text); font-family:var(--font-mono); font-size:13px; overflow:hidden; }
+
+        .shell {
+            display: grid;
+            grid-template-rows: 44px 1fr;
+            grid-template-columns: 1fr 300px;
+            height: 100vh;
+            animation: fadeIn .3s ease both;
+        }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+
+        .topbar {
+            grid-column: 1/-1;
+            display:flex; align-items:center; gap:14px;
+            padding:0 16px;
+            border-bottom:1px solid var(--border);
+            background:var(--surface);
+        }
+        .logo { font-family:var(--font-ui); font-weight:800; font-size:16px; letter-spacing:-.3px; display:flex; align-items:center; gap:8px; }
+        .logo-dot { width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 8px var(--accent); animation:glow 2s ease-in-out infinite; }
+        @keyframes glow { 0%,100%{opacity:1;box-shadow:0 0 8px var(--accent)} 50%{opacity:.4;box-shadow:0 0 2px var(--accent)} }
+        .tb-div { width:1px; height:18px; background:var(--border2); }
+        .tb-sub { font-size:10px; color:var(--muted); letter-spacing:.8px; text-transform:uppercase; }
+        .tb-space { flex:1; }
+        .live-pill {
+            display:flex; align-items:center; gap:5px;
+            padding:3px 10px; border-radius:20px; border:1px solid var(--border2);
+            font-family:var(--font-ui); font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase;
+            color:var(--muted); transition:all .3s;
+        }
+        .live-pill .dot { width:5px; height:5px; border-radius:50%; background:var(--muted); transition:all .3s; }
+        .live-pill.active { border-color:rgba(255,59,92,.35); color:var(--red); }
+        .live-pill.active .dot { background:var(--red); box-shadow:0 0 6px var(--red); animation:blink 1s ease-in-out infinite; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+        .clock { font-size:11px; color:var(--muted); min-width:64px; text-align:right; }
+
+        .left-col {
+            display: grid;
+            grid-template-rows: 55% 45%;
+            overflow: hidden;
+            border-right: 1px solid var(--border);
+        }
+
+        .video-outer {
+            background: #000;
+            border-bottom: 1px solid var(--border);
+            position: relative;
+            overflow: hidden;
+            min-height: 0;
+        }
+        .video-ratio { position: absolute; inset: 0; }
+        .video-ratio > * { position:absolute; inset:0; }
+        .video-ratio::after {
+            content:''; pointer-events:none; z-index:3;
+            background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.03) 2px,rgba(0,0,0,.03) 4px);
+        }
+        .corner { position:absolute; width:18px; height:18px; z-index:4; }
+        .corner.tl{top:10px;left:10px;border-top:1.5px solid var(--accent);border-left:1.5px solid var(--accent);}
+        .corner.tr{top:10px;right:10px;border-top:1.5px solid var(--accent);border-right:1.5px solid var(--accent);}
+        .corner.bl{bottom:10px;left:10px;border-bottom:1.5px solid var(--accent);border-left:1.5px solid var(--accent);}
+        .corner.br{bottom:10px;right:10px;border-bottom:1.5px solid var(--accent);border-right:1.5px solid var(--accent);}
+
+        video#video { width:100%; height:100%; object-fit:contain; z-index:1; display:none; }
+
+        .idle { z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; }
+        .idle-icon { width:52px; height:52px; border:1.5px solid var(--border2); border-radius:12px; display:flex; align-items:center; justify-content:center; color:var(--muted); }
+        .idle-label { font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); }
+
+        .vid-overlay {
+            position:absolute; bottom:0; left:0; right:0; z-index:5;
+            padding:8px 12px;
+            background:linear-gradient(to top,rgba(0,0,0,.75),transparent);
+            display:flex; align-items:center; gap:10px;
+            opacity:0; transition:opacity .3s;
+        }
+        .video-outer:hover .vid-overlay { opacity:1; }
+        .vid-cam { font-family:var(--font-ui); font-size:12px; font-weight:700; color:#fff; }
+        .vid-ts  { font-size:10px; color:rgba(255,255,255,.4); margin-left:auto; }
+
+        .tab-panel { display:flex; flex-direction:column; overflow:hidden; min-height:0; }
+        .tab-bar { display:flex; align-items:stretch; border-bottom:1px solid var(--border); background:var(--surface); flex-shrink:0; }
+        .tab {
+            padding:0 16px;
+            font-family:var(--font-ui); font-size:11px; font-weight:700; letter-spacing:.5px; text-transform:uppercase;
+            color:var(--muted); cursor:pointer; border:none; background:none;
+            border-bottom:2px solid transparent;
+            height:36px; display:flex; align-items:center; gap:6px;
+            transition:color .15s, border-color .15s;
+            white-space:nowrap;
+        }
+        .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+        .tab-content { flex:1; overflow:hidden; padding:16px; min-height:0; display:flex; flex-direction:column; }
+        .tab-pane { display:none; flex:1; min-height:0; }
+        .tab-pane.active { display:flex; flex-direction:column; }
+
+        /* PTZ Styles */
+        .ptz-wrap { display:flex; flex-direction:column; align-items:center; gap:16px; }
+        .ptz-ring {
+            position:relative; width:140px; height:140px; border-radius:50%;
+            background:var(--surface2); border:1.5px solid var(--border2);
+            box-shadow:0 0 0 6px var(--surface), 0 0 0 7px var(--border);
+        }
+        .ptz-center {
+            position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+            width:36px; height:36px; border-radius:50%; background:var(--border2);
+            display:flex; align-items:center; justify-content:center; color:var(--muted); cursor:pointer;
+        }
+        .ptz-btn {
+            position:absolute; width:32px; height:32px; border-radius:50%; background:var(--surface);
+            border:1.5px solid var(--border2); display:flex; align-items:center; justify-content:center; color:var(--muted); cursor:pointer;
+        }
+        .ptz-btn.up    { top:8px;    left:50%;  transform:translateX(-50%); }
+        .ptz-btn.down  { bottom:8px; left:50%;  transform:translateX(-50%); }
+        .ptz-btn.left  { left:8px;   top:50%;   transform:translateY(-50%); }
+        .ptz-btn.right { right:8px;  top:50%;   transform:translateY(-50%); }
+
+        /* Sidebar */
+        .sidebar { background:var(--surface); display:flex; flex-direction:column; overflow:hidden; }
+        .sb-block { padding:12px 12px 0; border-bottom:1px solid var(--border); }
+        .sb-label { font-size:10px; font-weight:500; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+        .cam-input {
+            width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
+            padding:7px 10px; color:var(--text); font-family:var(--font-mono); font-size:12px;
+            outline:none; margin-bottom:8px;
+        }
+        .btn {
+            width:100%; display:flex; align-items:center; justify-content:center; gap:6px;
+            padding:8px; border-radius:6px; border:none; cursor:pointer;
+            font-family:var(--font-ui); font-size:12px; font-weight:700; transition:all .15s; margin-bottom:10px;
+        }
+        .btn-connect { background:var(--accent); color:#000; }
+        .btn-disconnect { background:rgba(255,59,92,.1); color:var(--red); border:1px solid rgba(255,59,92,.25); }
+
+        .states { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+        .srow { display:flex; align-items:flex-start; gap:6px; }
+        .skey { min-width:44px; flex-shrink:0; font-size:10px; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
+        .sval { font-size:10px; color:var(--text); word-break:break-all; }
+        .badge { display:inline-block; padding:1px 5px; border-radius:3px; font-size:10px; font-family:var(--font-mono); background:var(--border); color:var(--muted); margin:1px 2px 1px 0; }
+        .badge.ok   { background:rgba(0,232,122,.12); color:var(--green); }
+        .badge.warn { background:rgba(255,204,0,.12);  color:var(--yellow); }
+        .badge.err  { background:rgba(255,59,92,.12);  color:var(--red); }
+        
+        .dclog {
+            flex:1; overflow-y:auto; background:var(--bg); border:1px solid var(--border);
+            border-radius:6px; padding:8px; font-size:10px; color:var(--muted); white-space:pre-wrap;
+            height: 150px;
+        }
+    </style>
+</head>
+<body>
+<div class="shell">
+    <header class="topbar">
+        <div class="logo"><div class="logo-dot"></div>iCam</div>
+        <div class="tb-div"></div>
+        <span class="tb-sub">Demo</span>
+        <div class="tb-space"></div>
+        <div class="live-pill" id="live-pill"><span class="dot"></span><span id="live-label">OFFLINE</span></div>
+        <div class="clock" id="clock"></div>
+    </header>
+
+    <div class="left-col">
+        <div class="video-outer">
+            <div class="video-ratio">
+                <div class="corner tl"></div><div class="corner tr"></div>
+                <div class="corner bl"></div><div class="corner br"></div>
+                <div class="idle" id="idle">
+                    <div class="idle-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M15 10l4.553-2.277A1 1 0 0121 8.66v6.68a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
+                        </svg>
+                    </div>
+                    <div class="idle-label">No signal</div>
+                </div>
+                <video id="video" autoplay playsinline></video>
+            </div>
+            <div class="vid-overlay">
+                <span class="vid-cam" id="vid-cam-label">—</span>
+                <span class="vid-ts" id="vid-ts"></span>
+            </div>
+        </div>
+
+        <div class="tab-panel">
+            <div class="tab-bar">
+                <button class="tab active" data-tab="ptz">PTZ</button>
+                <button class="tab" data-tab="ota">OTA</button>
+                <button class="tab" data-tab="playback">Playback</button>
+            </div>
+            <div class="tab-content tab-pane active" id="tab-ptz">
+                <div class="ptz-wrap">
+                    <div class="ptz-ring">
+                        <button class="ptz-btn up"    onclick="ptzCmd('up')"   >▲</button>
+                        <button class="ptz-btn down"  onclick="ptzCmd('down')" >▼</button>
+                        <button class="ptz-btn left"  onclick="ptzCmd('left')" >◀</button>
+                        <button class="ptz-btn right" onclick="ptzCmd('right')">▶</button>
+                        <button class="ptz-center"    onclick="ptzCmd('home')" >●</button>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane" id="tab-ota">OTA Panel — Phase 1 non-goal</div>
+            <div class="tab-pane" id="tab-playback">Playback Panel — Phase 1 non-goal</div>
+        </div>
+    </div>
+
+    <aside class="sidebar">
+        <div class="sb-block">
+            <div class="sb-label">Camera</div>
+            <input class="cam-input" id="cam-id" type="text" placeholder="Camera ID (e.g. cam_001)" />
+            <button class="btn btn-connect" id="start" onclick="start()" disabled>Connect</button>
+            <button class="btn btn-disconnect" id="stop" style="display:none" onclick="stop()">Disconnect</button>
+        </div>
+        <div class="sb-block">
+            <div class="sb-label">Connection</div>
+            <div class="states">
+                <div class="srow"><span class="skey">ICE</span><span class="sval" id="ice-connection-state"><span class="badge">—</span></span></div>
+                <div class="srow"><span class="skey">Gather</span><span class="sval" id="ice-gathering-state"><span class="badge">—</span></span></div>
+                <div class="srow"><span class="skey">Signal</span><span class="sval" id="signaling-state"><span class="badge">—</span></span></div>
+            </div>
+        </div>
+        <div class="sb-block" style="flex:1">
+            <div class="sb-label">Data Channel</div>
+            <div class="dclog" id="data-channel"></div>
+        </div>
+    </aside>
+</div>
+
+<!-- Hidden SDP display elements used by client.js -->
+<span id="offer-sdp"  style="display:none"></span>
+<span id="answer-sdp" style="display:none"></span>
+<div  id="media"      style="display:none"></div>
+
+<script src="client.js"></script>
+<script>
+// ── Badge state coloring ──────────────────────────────────────────────────────
+function badgeClass(v) {
+    if (/connected|complete|stable|open/.test(v))      return 'ok';
+    if (/checking|gathering|offer|connecting/.test(v)) return 'warn';
+    if (/failed|disconnected|closed/.test(v))          return 'err';
+    return 'info';
+}
+
+['ice-connection-state','ice-gathering-state','signaling-state'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    
+    const desc = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
+    
+    Object.defineProperty(el, 'textContent', {
+        set(v) {
+            if (typeof v !== 'string') return;
+            el.innerHTML = v.split(' -> ')
+                .filter(Boolean)
+                .map(s => `<span class="badge ${badgeClass(s.trim())}">${s.trim()}</span>`)
+                .join('');
+        },
+        get() { return desc.get.call(el); }
+    });
+});
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+setInterval(() => {
+    document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB');
+    document.getElementById('vid-ts').textContent = new Date().toLocaleString('en-GB');
+}, 1000);
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    });
+});
+
+// ── UI control wrappers ───────────────────────────────────────────────────────
+const _originalStart = window.start;
+window.start = function() {
+    _originalStart();
+    document.getElementById('live-pill').classList.add('active');
+    document.getElementById('live-label').textContent = 'LIVE';
+    document.getElementById('vid-cam-label').textContent = document.getElementById('cam-id').value || 'Camera';
+    document.getElementById('start').style.display = 'none';
+    document.getElementById('stop').style.display = 'flex';
+};
+
+const _originalStop = window.stop;
+window.stop = function() {
+    _originalStop();
+    document.getElementById('live-pill').classList.remove('active');
+    document.getElementById('live-label').textContent = 'OFFLINE';
+    document.getElementById('video').style.display = 'none';
+    document.getElementById('idle').style.display = 'flex';
+    document.getElementById('start').style.display = 'flex';
+    document.getElementById('stop').style.display = 'none';
+};
+
+document.getElementById('video').onplay = () => {
+    document.getElementById('video').style.display = 'block';
+    document.getElementById('idle').style.display = 'none';
+};
+
+// ── PTZ placeholder ───────────────────────────────────────────────────────────
+function ptzCmd(dir) {
+    if (window.dc && window.dc.readyState === 'open') {
+        window.dc.send(JSON.stringify({type: 'ptz', cmd: dir}));
+        const log = document.getElementById('data-channel');
+        log.textContent += `> PTZ: ${dir}\n`;
+        log.scrollTop = log.scrollHeight;
+    }
+}
+</script>
+</body>
+</html>
