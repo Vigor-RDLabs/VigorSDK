@@ -17,9 +17,9 @@ The VigorConnect Web SDK provides developer-friendly abstractions for establish 
 Install directly from GitHub repository:
 
 ```bash
-npm install git+https://github.com/Vigor-RDLabs/VigorConnect_sdk.git
+npm install git+https://github.com/Vigor-RDLabs/VigorSDK.git
 # OR using yarn / pnpm
-yarn add git+https://github.com/Vigor-RDLabs/VigorConnect_sdk.git
+yarn add git+https://github.com/Vigor-RDLabs/VigorSDK.git
 ```
 
 ## Quickstart Usage
