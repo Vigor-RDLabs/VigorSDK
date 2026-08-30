@@ -14,10 +14,12 @@ The VigorConnect Web SDK provides developer-friendly abstractions for establish 
 
 ## Installation
 
+Install directly from GitHub repository:
+
 ```bash
-npm install @vigor/camera-sdk
+npm install git+https://github.com/Vigor-RDLabs/VigorConnect_sdk.git
 # OR using yarn / pnpm
-yarn add @vigor/camera-sdk
+yarn add git+https://github.com/Vigor-RDLabs/VigorConnect_sdk.git
 ```
 
 ## Quickstart Usage
